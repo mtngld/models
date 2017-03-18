@@ -188,6 +188,11 @@ accuracy = tf.reduce_mean(tf.cast(correct_prediction, 'float'))
 tf.summary.scalar('loss', cross_entropy)
 tf.summary.scalar('accuracy', accuracy)
 
+# Monitor h divergence
+mean_h_fc_loc2 = tf.reduce_mean(tf.stack(h_fc_loc2), axis=0)
+print('mean_h_fc_loc2 shape: ',mean_h_fc_loc2.get_shape())
+div = tf.reduce_sum(tf.square(tf.subtract(h_fc_loc2, mean_h_fc_loc2)))
+tf.summary.scalar('div', div)
 
 merged = tf.summary.merge_all()
 
