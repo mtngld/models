@@ -25,6 +25,8 @@ FLAGS = tf.app.flags.FLAGS
 # Basic model parameters.
 tf.app.flags.DEFINE_integer('number_of_loc_nets', 10,
                             """Number of localisation nets.""")
+tf.app.flags.DEFINE_float('sigma', 0.1,
+                            """Number of localisation nets.""")
 # tf.app.flags.DEFINE_string('data_dir', '/tmp/cifar10_data',
 #                            """Path to the CIFAR-10 data directory.""")
 # tf.app.flags.DEFINE_boolean('use_fp16', False,
@@ -75,7 +77,7 @@ def localisation_net(x, keep_prob):
 
         W_fc_loc2 = weight_variable([20, 6])
         # Use identity transformation as starting point
-        noise = np.random.normal(loc=0.0, scale=0.1, size=[2, 3])
+        noise = np.random.normal(loc=0.0, scale=FLAGS.sigma, size=[2, 3])
         initial = np.array([[1., 0, 0], [0, 1., 0]]) + noise
         initial = initial.astype('float32')
         initial = initial.flatten()
@@ -183,6 +185,7 @@ optimizer = opt.minimize(cross_entropy)
 #  Monitor accuracy
 correct_prediction = tf.equal(tf.argmax(y_logits, 1), tf.argmax(y, 1))
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, 'float'))
+tf.summary.scalar('loss', cross_entropy)
 tf.summary.scalar('accuracy', accuracy)
 
 
@@ -195,7 +198,11 @@ sess = tf.Session()
 sess.run(tf.global_variables_initializer())
 
 now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-train_writer = tf.summary.FileWriter('./train/' + now, sess.graph)
+train_writer = tf.summary.FileWriter(
+    './train/locnets={}/sigma={}'.format(
+        FLAGS.number_of_loc_nets,
+        FLAGS.sigma),
+    sess.graph)
 #  We'll now train in minibatches and report accuracy, loss:
 iter_per_epoch = 100
 n_epochs = 500
