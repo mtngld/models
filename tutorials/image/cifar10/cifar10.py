@@ -45,6 +45,10 @@ import tensorflow as tf
 
 import cifar10_input
 
+import numpy as np
+from tf_utils import weight_variable, bias_variable, dense_to_one_hot
+from spatial_transformer import transformer
+
 FLAGS = tf.app.flags.FLAGS
 
 # Basic model parameters.
@@ -54,7 +58,8 @@ tf.app.flags.DEFINE_string('data_dir', '/tmp/cifar10_data',
                            """Path to the CIFAR-10 data directory.""")
 tf.app.flags.DEFINE_boolean('use_fp16', False,
                             """Train the model using fp16.""")
-
+tf.app.flags.DEFINE_float('sigma', 0.0,
+                            """Number of localisation nets.""")
 # Global constants describing the CIFAR-10 data set.
 IMAGE_SIZE = cifar10_input.IMAGE_SIZE
 NUM_CLASSES = cifar10_input.NUM_CLASSES
@@ -185,6 +190,43 @@ def inputs(eval_data):
   return images, labels
 
 
+def localisation_net(x, keep_prob):
+    with tf.variable_scope('localisation_net'):
+        # Since x is currently [batch, height*width], we need to reshape to a
+        # 4-D tensor to use it in a convolutional graph.  If one component of
+        # `shape` is the special value -1, the size of that dimension is
+        # computed so that the total size remains constant.  Since we haven't
+        # defined the batch dimension's shape yet, we use -1 to denote this
+        # dimension should not change size.
+        x_flatten = tf.reshape(x, [-1, 1728])
+
+        #  We'll setup the two-layer localisation network to figure out the
+        #  parameters for an affine transformation of the input
+        #  Create variables for fully connected layer
+        W_fc_loc1 = weight_variable([1728, 20])
+        b_fc_loc1 = bias_variable([20])
+
+        W_fc_loc2 = weight_variable([20, 6])
+        # Use identity transformation as starting point
+        noise = np.random.normal(loc=0.0, scale=FLAGS.sigma, size=[2, 3])
+        initial = np.array([[1., 0, 0], [0, 1., 0]]) + noise
+        initial = initial.astype('float32')
+        initial = initial.flatten()
+        b_fc_loc2 = tf.Variable(initial_value=initial, name='b_fc_loc2')
+
+        #  Define the two layer localisation network
+        h_fc_loc1 = tf.nn.tanh(tf.matmul(x_flatten, W_fc_loc1) + b_fc_loc1)
+        h_fc_loc1_drop = tf.nn.dropout(h_fc_loc1, keep_prob)
+        #  Second layer
+        h_fc_loc2 = tf.nn.tanh(tf.matmul(h_fc_loc1_drop, W_fc_loc2) + b_fc_loc2)
+
+        #  We'll create a spatial transformer module to identify discriminative
+        #  patches
+        out_size = (24, 24, 3)
+        h_trans = transformer(x, h_fc_loc2, out_size)
+        return h_trans, h_fc_loc2
+
+
 def inference(images):
   """Build the CIFAR-10 model.
 
@@ -194,6 +236,10 @@ def inference(images):
   Returns:
     Logits.
   """
+  if FLAGS.transformer:
+    images, _ = localisation_net(images, 1.0)
+    images.set_shape([FLAGS.batch_size, 24, 24, 3])
+
   # We instantiate all variables using tf.get_variable() instead of
   # tf.Variable() in order to share variables across multiple GPU training runs.
   # If we only ran this model on a single GPU, we could simplify this function
